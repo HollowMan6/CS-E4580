@@ -2,6 +2,7 @@ import subprocess
 from typing import List, Optional, Dict, Union
 import re
 import copy
+from os import path
 from ppcgrader.logging import log_command
 import platform
 import sys
@@ -257,10 +258,20 @@ I should be able to find the right packages and compilers then!'''
             try:
                 brew_libomp_command = ['brew', 'list', 'libomp']
                 log_command(brew_libomp_command)
-                assert (subprocess.run(brew_libomp_command,
-                                       timeout=10,
-                                       stdout=subprocess.PIPE,
-                                       stderr=subprocess.PIPE).returncode == 0)
+                find_libomp = subprocess.run(
+                    brew_libomp_command,
+                    timeout=10,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                assert find_libomp.returncode == 0
+
+                files = [
+                    file
+                    for file in find_libomp.stdout.decode('utf-8').split('\n')
+                    if len(file) != 0
+                ]
+                libomp_folder = path.commonprefix(files)
             except subprocess.TimeoutExpired:
                 print('Could not check required packages. Continuing...')
             except AssertionError:
@@ -285,10 +296,10 @@ I should be able to find the right packages and compilers then!'''
                 sys.exit(message)
 
             self = self.add_flag('-Xpreprocessor', '-fopenmp')
-            self = self.add_flag('-I', f'{brew_dir}/include')
+            self = self.add_flag('-I', f'{libomp_folder}/include')
             if sys.argv[1] != 'assembly':
                 self = self.add_flag('-lomp')
-                self = self.add_flag('-L', f'{brew_dir}/lib')
+                self = self.add_flag('-L', f'{libomp_folder}/lib')
 
         else:
             self = self.add_flag('-fopenmp')

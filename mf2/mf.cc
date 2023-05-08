@@ -34,14 +34,15 @@ void mf(int ny, int nx, int hy, int hx, const float *in, float *out)
 
       int middle = size / 2;
       std::nth_element(values.begin(), values.begin() + middle, values.end());
+      float midValue = values[middle];
       if (size % 2 == 0)
       {
         std::nth_element(values.begin(), values.begin() + middle - 1, values.end());
-        out[x + y * nx] = (values[middle] + values[middle - 1]) / 2.0;
+        out[x + y * nx] = (midValue + values[middle - 1]) / 2.0;
       }
       else
       {
-        out[x + y * nx] = values[middle];
+        out[x + y * nx] = midValue;
       }
     }
   }
