@@ -69,7 +69,7 @@ void correlate(int ny, int nx, const float *data, float *result)
     {
         for (int j = i; j < ny_v * element; j += element)
         {
-            std::vector<std::vector<float8_t>> sums(element, std::vector<float8_t>(element));
+            float8_t sums[element][element] = {{0.0}};
 
             for (int k = 0; k < nx_v; k++)
             {
