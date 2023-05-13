@@ -1,6 +1,10 @@
 #include <cmath>
 #include <vector>
+#include <x86intrin.h>
+
 typedef double double4_t __attribute__((vector_size(4 * sizeof(double))));
+static inline double4_t swap2(double4_t x) { return _mm256_permute2f128_pd(x, x, 0b00000001); }
+static inline double4_t swap1(double4_t x) { return _mm256_permute_pd(x, 0b00000101); }
 
 /*
 This is the function you need to implement. Quick reference:
@@ -45,73 +49,66 @@ void correlate(int ny, int nx, const float *data, float *result)
 
     // step 3: calculate matrix product
     const int element = 4;
-    const int nx_v = (nx + element - 1) / element;
     const int ny_v = (ny + element - 1) / element;
-    std::vector<std::vector<double4_t>> data_copy_v(ny_v * element, std::vector<double4_t>(nx_v));
+    std::vector<std::vector<double4_t>> data_copy_v(ny_v, std::vector<double4_t>(nx));
 
 #pragma omp parallel for
-    for (int y = 0; y < ny; y++)
+    for (int y = 0; y < ny_v; y++)
     {
-        for (int x = 0; x < nx_v; x++)
+        for (int x = 0; x < nx; x++)
         {
-            const int base = x * element;
+            const int base = y * element;
             double4_t v = {0.0, 0.0, 0.0, 0.0};
-            for (int e = 0; e < element && base + e < nx; e++)
+            for (int e = 0; e < element && base + e < ny; e++)
             {
-                v[e] = data_copy[y *nx + base + e];
+                v[e] = data_copy[nx * (base + e) + x];
             }
             data_copy_v[y][x] = v;
         }
     }
 
-#pragma omp parallel for schedule(dynamic, 1)
-    for (int i = 0; i < ny_v * element; i += element)
+#pragma omp parallel for schedule(static, 1)
+    for (int x = 0; x < ny_v; ++x)
     {
-        for (int j = i; j < ny_v * element; j += element)
+        for (int y = x; y < ny_v; ++y)
         {
-            double4_t sums[element][element] = {{0.0}};
+            double4_t sums00 = {0.0, 0.0, 0.0, 0.0};
+            double4_t sums01 = {0.0, 0.0, 0.0, 0.0};
+            double4_t sums10 = {0.0, 0.0, 0.0, 0.0};
+            double4_t sums11 = {0.0, 0.0, 0.0, 0.0};
 
-            for (int k = 0; k < nx_v; k++)
+            for (int k = 0; k < nx; ++k)
             {
-                const double4_t x0 = data_copy_v[i][k];
-                const double4_t x1 = data_copy_v[i + 1][k];
-                const double4_t x2 = data_copy_v[i + 2][k];
-                const double4_t x3 = data_copy_v[i + 3][k];
+                double4_t x00 = data_copy_v[x][k];
+                double4_t y00 = data_copy_v[y][k];
+                double4_t x10 = swap2(x00);
+                double4_t y01 = swap1(y00);
 
-                const double4_t y0 = data_copy_v[j][k];
-                const double4_t y1 = data_copy_v[j + 1][k];
-                const double4_t y2 = data_copy_v[j + 2][k];
-                const double4_t y3 = data_copy_v[j + 3][k];
-                sums[0][0] += x0 * y0;
-                sums[0][1] += x0 * y1;
-                sums[0][2] += x0 * y2;
-                sums[0][3] += x0 * y3;
-
-                sums[1][0] += x1 * y0;
-                sums[1][1] += x1 * y1;
-                sums[1][2] += x1 * y2;
-                sums[1][3] += x1 * y3;
-
-                sums[2][0] += x2 * y0;
-                sums[2][1] += x2 * y1;
-                sums[2][2] += x2 * y2;
-                sums[2][3] += x2 * y3;
-
-                sums[3][0] += x3 * y0;
-                sums[3][1] += x3 * y1;
-                sums[3][2] += x3 * y2;
-                sums[3][3] += x3 * y3;
+                sums00 += x00 * y00;
+                sums01 += x00 * y01;
+                sums10 += x10 * y00;
+                sums11 += x10 * y01;
             }
 
-            for (int av = 0; av < element; av++)
+            double4_t sums[4] = {sums00, sums01, sums10, sums11};
+            for (int e = 1; e < element; e += 2)
             {
-                for (int bv = 0; bv < element; bv++)
+                sums[e] = swap1(sums[e]);
+            }
+
+            for (int a = 0; a < element; a++)
+            {
+                for (int b = 0; b < element; b++)
                 {
-                    int a = i + av;
-                    int b = j + bv;
-                    const double4_t c = sums[av][bv];
-                    if (i < ny - av && j < ny - bv)
-                        result[ny * a + b] = c[0] + c[1] + c[2] + c[3];
+                    int i = a + x * element;
+                    int j = b + y * element;
+                    if (i <= j)
+                    {
+                        if (j < ny && i < ny)
+                        {
+                            result[ny * i + j] = sums[a ^ b][b];
+                        }
+                    }
                 }
             }
         }
